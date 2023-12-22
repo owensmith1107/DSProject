@@ -1,0 +1,503 @@
+---
+title: "Project"
+author: "Owen Smith"
+date: "2023-10-13"
+output:
+  word_document: default
+  html_document: default
+---
+
+~Owen Smith, Molly Mckay, Kay Weaving, Nikhil Roy
+
+**Introduction**
+
+For our project, we were analyzing our data set to better comprehend what factors influence data science salaries. In the first section of our project, we focused our efforts on better understanding the relationships that exist between different explanatory variables and salary. From these findings, we determined our research question to be determining “Which variables are the best predictors of data science salary?” We made this choice because we wanted to make the distinction of which factors can be used as more accurate predictors.
+
+**Statement of Purpose**
+
+This topic was of interest to us as college students who are emerging into business and data science fields. Two of our group members are data science majors, so this was especially interesting to them because they wanted to know what may influence their salary outcomes in the future. Further, one of our group members is going into human resources and wanted to learn more about compensation in this lucrative field. For these reasons, we wanted to learn more about the data science salaries and chose to focus on this as our topic for the project.
+
+**Data Set**
+
+The data set was retrieved from Kaggle and was entitled “Data Science Job Salaries.” There were 606 data entries ranging from the years 2020 to 2022. 
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(randomForest)
+library(gam)
+library(tree)
+library(tibble)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(glmnet)
+library(class)
+library(e1071)
+library(ROCR)
+library(mgcv)
+setwd("C:/Users/owens/Downloads/DS2")
+salaries <- read.csv("ds_salaries.csv")
+
+
+```
+
+**Variables**
+
+The main response variable used in the study was salary, and we specifically used Salary (USD) for the analysis in order to have all values under the same currency. The explanatory variables included in the data set include Experience Level (Entry, Mid, Senior, and Executive Level), Job Title, Employee Residence, Remote Ratio (On-Site, Hybrid, Remote), Employment Type (Full Time, Part Time), Company Size (Small, Medium, Large), Company Location, and Employee Residence. Some of these variables we found to be more important than others based on the distribution of the responses, so this will be reflected in the visualizations presented. In order to better understand our response, we can calculate some summary statistics. 
+
+```{r}
+
+salaries_salary <- salaries %>% 
+  summarise(
+    avg_salary = mean(salary_in_usd), 
+    med_salary = median(salary_in_usd), 
+    sd_salary = sd(salary_in_usd)
+  ); salaries_salary
+
+```
+Intriguing that the standard deviation is that large. This introduces us to the variability contained within the dataset. 
+
+```{r}
+
+glimpse(salaries)
+et <- salaries %>% 
+  select(job_title)
+
+unique(et)
+
+salaries1 <- salaries %>% select(salary_in_usd)
+
+ggplot(salaries1, aes(x = salary_in_usd/1000, y = after_stat(density))) + 
+  geom_histogram(bins = 30, fill = '#008600', color = 'black') + 
+  labs(title = "Salary Distribution", x = "(USD) Salary (In Thousands)", y = "Rel. Frequency") + 
+  geom_density(col = '#ffcd00', linewidth = 1.5) + 
+  theme_minimal()
+
+```
+
+Based on both the histogram and the density curve, it is apparent that salaries (in USD) for differing data science jobs is defined on the positive real line, and its visibly rightly skewed. With this discovery we can conclude that the distribution is not symmetric nor normal. 
+
+
+```{r}
+
+salaries3 <- ggplot(salaries1, aes(x = salary_in_usd/1000)) + geom_boxplot(color = '#6001a6'); salaries3
+quantile(salaries1$salary_in_usd)
+mean(salaries1$salary_in_usd)
+
+salary600 <- salaries %>% 
+  filter(salary_in_usd > 500000) 
+head(salary600)
+  
+
+```
+
+When analyzing the boxplot and five number summary, it is apparent that there are roughly ten extreme outliers in terms of financial compensation. (Dots that fall past the 300k mark) Further proof of irregularity is the comparison of the mean and the median; the outlier at 600k pulls the average ~10k above the median, showing an additional layer of a positive skew. 
+
+
+```{r}
+
+salaries4 <- ggplot(salaries1, aes(sample = salary_in_usd)) + 
+  geom_qq(col = "#e38b20") + 
+  geom_qq_line(col = '#003560', alpha = .5) + 
+  labs(y = "Salary (USD, in Thousands)", x = 'Normal Theoretical Quantiles') + 
+  scale_y_continuous(labels = scales::dollar_format(scale = 1e-3)) + 
+  theme(aspect.ratio = 1)
+   salaries4
+
+```
+
+The qq plot shows further evidence of irregularity. Salaries start and end higher than anticipated with several data-based employees making over 400k anually.
+
+**Modeling and Analysis Plan** 
+
+We first started with understanding the response variable Salary (USD) by doing summary statistics and distributions. Then, we will focus on different explanatory variables to visualize the relationships. We did lots of data exploration in order to help guide our project and better understand what insights we are hoping to uncover. Afterwards, we will implement multiple models to help focus on determining which variables are the best predictors of salary. The models used for these include a Regression-Based and Classification-Based Random Forest, a GAM Model, a Decision Tree, Logistic Regression, and Naive Bayes. We wanted to try many different models to see which worked best for our data set. 
+
+**Results**
+
+The first predictor we will visualize, and most likely the strongest factor in determining salary, is experience level. 
+
+
+```{r}
+
+salaries_iqr <- salaries %>% 
+  select(experience_level, salary_in_usd) %>% 
+  group_by(experience_level) %>% 
+  summarise(
+    q1_salary = quantile(salary_in_usd, .25),
+    median_salary = median(salary_in_usd), 
+    q3_salary = quantile(salary_in_usd, .75)
+  )
+
+w_plot <- ggplot(
+  data = salaries_iqr, 
+  aes(x = reorder(experience_level, -median_salary), y = median_salary)
+) + 
+  xlab(NULL) +
+  ylab("Salary (USD)") +
+  ggtitle("IQR of Salary by Experience Level") + 
+  geom_linerange(aes(ymin = q1_salary, ymax = q3_salary), color = '#662c9c', linewidth = 5, alpha = .8) + 
+  geom_point(aes(y = median_salary), fill = 'white', color = 'white', size = 3, shape = 21) + 
+  coord_flip()
+
+w_plot
+
+
+
+```
+
+Entry level (EN) jobs have a median annual salary of ~ 55k.
+Mid level (MI) jobs have a median annual salary of ~ 75k.
+Senior level (SE) jobs have a median annual salary of ~ 135k.
+Executive level (EX) jobs have a median annual salary of ~ 170k.
+
+Once again, the effect experience level has on salary comes as no surprise, but it provides good insight. For example, entry level to mid level grants a hypothetical raise of 20k; senior to executive grants a raise of 35k, but mid level to senior rewards you with a raise of 60k. Why?
+
+Next we will look at job titles and narrow down the top 20 highest paid job titles.
+
+
+```{r}
+
+salaries_df <- salaries %>%
+  filter(employment_type == 'FT') %>%
+  group_by(job_title) %>%
+  mutate(avg_salary_usd = mean(salary_in_usd))
+
+grouped_jobs_df <- salaries_df %>%
+  group_by(job_title) %>%
+  summarise(
+    avg_salary_usd = mean(avg_salary_usd), 
+    num_occurrences = n()
+  )
+
+top_20_salaries <- grouped_jobs_df %>% arrange(desc(avg_salary_usd)) %>% head(20)
+top_20_salaries
+
+```
+
+This is based on full time employment. Additionally, as you can see, there are numerous jobs with only one or two observations. This aligns with the hundreds of job titles displayed in the data set which will make its functionality as a predictor quite limited. 
+
+```{r}
+
+bar <- top_20_salaries %>% mutate(job_title = reorder(job_title, avg_salary_usd)) %>% 
+  ggplot(aes(x = job_title, y = avg_salary_usd)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(x = "Job Titles", y = "Average Yearly Salary (In USD)", title = "Average Yearly Salary For Full Time Job Positions"); bar
+
+
+```
+
+Based on the bar chart, three outliers are prominent: Data Analytics Lead, Financial Data Analyst, and Principal Data Engineer. If we recall, the outlier observation with a salary of 600k is a principal data engineer and should heavily skew their collective average, so why does data analytics lead peak higher? Because of the unique job description, $400k was the only observed salary for that position; thus, the average.
+
+To continue, we will visualize a more logical relationship between company size and salary. 
+
+```{r}
+
+companySize <- salaries %>% 
+  select(company_size, salary_in_usd) %>% 
+  group_by(company_size)
+  
+company_plot <- ggplot(companySize, aes(x = company_size, y = salary_in_usd/1000)) +
+  geom_boxplot(fill = 'darkred') +
+  labs(
+    x = 'Company Size', 
+    y = 'Salary (USD in Thousands)'
+  ) + theme_minimal()
+  
+
+company_plot
+  
+
+```
+
+Although you would think this a straightforward relationship between two variables, based on the data we are working with, that is not the case. For instance, the median salary at a medium sized company surpasses a large company's average by ~10k. In addition, independent of company size, outliers are shared. In all three company sizes, there are observation(s) that have a salary of over 400k. How can a small company afford that?
+
+The last predictor we will visualize is remote_ratio. 
+
+```{r}
+
+salaries_remote <- salaries %>% 
+  select(remote_ratio)
+  
+sr <- ggplot(data = salaries_remote, aes(x = factor(remote_ratio), y = after_stat(prop), group = 1)) + 
+  geom_bar(fill = '#33608c') + 
+  labs(
+    x = 'Remote Ratio',
+    y = 'Proportion'
+  )
+sr
+
+```
+
+Not surprising based on the data science jobs, but still interesting that nearly 70% of employees observed are entirely remote. 
+
+Based on that, it is likely the fully remote jobs will yield higher results in average salary. 
+
+```{r}
+
+rr <- salaries %>% 
+  select(remote_ratio, salary_in_usd, X)
+
+rr_plot = ggplot(rr, aes(x = X, y = salary_in_usd)) +
+  geom_point(shape = 20, size = 3, color = 'tan') + 
+  labs(
+    x = 'Observations',
+    y = 'Salary (USD)'
+  ) + facet_wrap(~remote_ratio)
+
+rr_plot
+
+rr_salaries <- salaries %>% 
+  select(remote_ratio, salary_in_usd) %>% 
+  group_by(remote_ratio) %>% 
+  summarise(avg_salary = mean(salary_in_usd))
+rr_salaries
+
+
+```
+
+Interesting to see that the half remote average salary is much less than fully-remote and fully on-site. With a bulk of the data centered around the ~70k mark. Whereas fully on-site falls mostly below 200k, and fully-remote has numerous observations above that 200k mark. 
+
+Relating back to the bar-chart, it is apparent that fully-remote jobs dominate the proportion of observations from the data. Thus, giving them a large advantage in terms of possibly higher salaries. Based on this data frame alone, it is difficult to make a sound conclusion on the accuracy of these averages. 
+
+Because our response variable (salary in USD) is numeric, we can fit our data to a regression-based random forest model. 
+
+```{r}
+
+
+newdata <- salaries %>% 
+  select(salary_in_usd, remote_ratio, job_title, experience_level, employment_type, company_size) %>% 
+  drop_na() 
+
+train <- newdata %>% sample_frac(size = .8)
+test <- newdata %>% setdiff(train)
+
+formula <- as.formula(salary_in_usd ~ remote_ratio+job_title+experience_level+employment_type+company_size)
+
+train_control <- trainControl(method = 'repeatedcv', number = 5, repeats = 2, search = 'grid')
+
+set.seed(123)
+
+mygrid <- expand.grid(mtry = seq(1, 5, by = 1))
+
+ntree_values <- c(100, 250, 500, 750, 1000, 1250, 1500)
+
+models <- list()
+
+for (ntree_val in ntree_values) {
+
+  rf_model <- train(formula, data = train, method = 'rf', trControl = train_control, tuneGrid = mygrid, metric = 'RMSE', ntree = ntree_val)
+  
+  models[[as.character(ntree_val)]] <- rf_model
+}
+
+best_model <- models[[which.min(sapply(models, function(model) min(model$results$RMSE)))]]
+best_model
+
+final_rf <- randomForest(formula, data = train, mtry = best_model$bestTune$mtry, ntree = best_model$finalModel$ntree)
+final_rf
+
+importance_data <- as.data.frame(importance(final_rf))
+
+ggplot(importance_data, aes(x = rownames(importance_data), y = IncNodePurity)) + 
+  geom_bar(stat = 'identity', fill = 'skyblue', color = 'black') + 
+  labs(title = 'Random Forest - Feature Importance', x = 'Predictors', y = 'Mean Decrease in Gini Index') + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+train_predictions <- predict(final_rf, newdata = train)
+train_rmse <- sqrt(mean((train$salary_in_usd - train_predictions)^2)); train_rmse
+
+test_predictions <- predict(final_rf, newdata = test)
+test_rmse <- sqrt(mean((test$salary_in_usd - test_predictions)^2)); test_rmse
+
+
+
+
+```
+In an attempt to tune the model to perfection, we used repeated cross-validation grid search to calculate the optimal value for mtry. After doing so, we realized how useless this would be. Because we only have five distinct predictors, searching for an mtry value beyond that was pointless; five was concluded to be the best option. Despite this, we still searched for an optimal ntree value by testing a range of possible values it could take. 
+
+We fit the model to 80% of our original data, and use the optimal values for mtry and ntree.
+
+Although job title seems to be the most important by a fair margin, because there are hundreds of possible job titles, it's hard to accurately measure the importance of it. On the other hand, experience level seems to be the most important/accurate predictor of salary (USD). Followed by company size, remote ratio, and surprisingly, employment type being the least important.
+
+Although these results follow a similar pattern to those of our other models, they should be taken with a grain of salt. Not only are the train and test RMSE values large on their own, the test RMSE is nearly double that of the train RMSE. Because of this, we can conclude that our model is overfit and not performing well on the test set. 
+
+In hope of a better performing regression-based model, we can fit a GAM model to our data using dummy variables for the predictors. 
+
+```{r}
+
+train$remote_ratio <- factor(train$remote_ratio)
+train$experience_level <- factor(train$experience_level)
+train$employment_type <- factor(train$employment_type)
+train$company_size <- factor(train$company_size)
+
+gam_model <- gam(salary_in_usd ~ remote_ratio + company_size + experience_level + employment_type, data = train)
+summary(gam_model)
+
+predicted_salaries <- predict(gam_model, newdata = test)
+
+mae <- mean(abs(predicted_salaries - test$salary_in_usd)); mae
+
+```
+In doing so, we can analyze the estimate coefficients and conclude which predictors have the most influence on our response. All three types of employment type prove to be statistically insignificant based on their large p-values. On the other hand, unsurprisingly, experience levels such as expert and senior prove to be the best indicators of a higher salary. 
+
+To understand how well our model performed, we calculate the mean absolute error to be ~ 50k. 
+
+In order to fit various classification models, we decided to transform our response variable into three distinct categories: Low, Med, High, or, 0, 1, 2. The cutoff ranges from 0:75k:150k:Inf
+
+The first model we will fit is a decision tree with a tuned complexity parameter of .5% (this was decided mostly through trial and error) using a new subset of our data. 
+
+```{r}
+
+newdata$salary_group <- cut(newdata$salary_in_usd,
+                            breaks = c(0, 75000, 150000, Inf), 
+                            labels = c('0', '1', '2'), 
+                            include.lowest = TRUE)
+
+
+set.seed(123)
+train2 <- newdata %>% sample_frac(size = .8)
+test2 <- newdata %>% setdiff(train2)
+
+confusion_matrix <- function(data,y,mod){
+confusion_matrix <- data %>%
+mutate(pred = predict(mod, newdata = data, type = "class"),
+y=y) %>%
+select(y,pred) %>% table()
+}
+
+misclass <- function(confusion){
+misclass <- 1- sum(diag(confusion))/sum(confusion)
+return(misclass)
+}
+
+logistic.misclassrate <- function(dataset, y, fit, form){
+misclass_lr <- dataset %>%
+mutate(pred.logistic = predict(fit, newx = model.matrix(form, data = dataset),
+type = "class")) %>%
+mutate(misclassify = ifelse(y != pred.logistic, 1,0)) %>%
+summarize(misclass.rate = mean(misclassify))
+return(misclass_lr$misclass.rate)
+}
+
+formula2 <- as.formula(salary_group ~ experience_level + company_size + employment_type + remote_ratio)
+
+mod_tree <- rpart(formula2, data = train2, control = rpart.control(cp = .005))
+rpart.plot(mod_tree)
+
+confusion_tree <- confusion_matrix(test2, test2$salary_group, mod_tree); confusion_tree
+misclass_tree <- misclass(confusion_tree); misclass_tree
+
+```
+To focus on the salary groups, nearly all the observations that fall under the entry or middle level experience level also fall into the 'low' category for salary. In contrast, those with a higher experience level, work fully remote, and belong to a larger company, fall into the highest category. Additionally, the last subset to fall into the highest salary category consists of expert experience level from a small/medium sized company. Everything in between falls into the middle category. 
+
+Once again, our model doesn't perform very well. In this case, based on the confusion matrix, the decision tree incorrectly groups observations into the middle group when they should be the lowest. Plus incorrectly labeling them as the middle group when they should be in the tier above. Taking the misclassification rate into account, we can conclude that the model incorrectly grouped an observation roughly half the time. 
+
+The next model to fit will be a logistic regression. Once again, we use a new subset of the data to train the model, and attempt to tune lambda through 10-fold cross-validation. 
+
+```{r}
+
+predictors <- model.matrix(formula2, data = train2)
+predictors_test <- model.matrix(formula2, data = test2)
+set.seed(123)
+cv.fit <- cv.glmnet(predictors, train2$salary_group, nfolds = 10, family = 'multinomial', type.measure = 'class' )
+cv.fit
+coef(cv.fit)
+
+
+
+fit_opt <- glmnet(predictors, train2$salary_group, family = 'multinomial', lambda = .06168); fit_opt
+
+probs <- predict(fit_opt, newx = predictors, s = .06168, type = 'response')
+
+predicted_class <- colnames(probs)[apply(probs, 1, which.max)]
+
+misclass_rate <- 1 - mean(predicted_class == train2$salary_group)
+misclass_rate
+
+```
+Using the tuned lambda, we can use the logistic model to make a data frame containing the predicted class (0, 1, 2) for each observation. With a tuned lambda and a low deviance, the anticipated accuracy was high, but through the prediction data frame and manual comparison with the training set, the miclassification rate remained high. 
+
+Despite this, the model still provides some insightful info. For example, the best predictor of the lowest salary grouping is an employment type of part time, for the middle group, all the coefficients were rounded down to zero, and for the highest salary grouping, once again, experience level of executive and senior are the best indicators.
+
+After a second iteration of the random forest model, this time classification-focused, the same results prove to be true. Repeatedly, tuning of mtry is relatively simply when it can only take the values 1:4. Optimal value of ntree was found through trail and error as well.  
+
+```{r}
+
+train3 <- newdata %>% sample_frac(size = .8)
+test3 <- newdata %>% setdiff(train3)
+
+control2 <- trainControl(method = 'repeatedcv', number = 7, repeats = 2, search = 'grid')
+
+set.seed(100)
+
+tunegrid <- expand.grid(.mtry=seq(2,20,2))
+rf_gridsearch <- train(salary_group~., data = train3, method = 'rf', metric = 'Accuracy', tuneGrid=tunegrid, trControl = control2)
+
+print(rf_gridsearch)
+
+mod_forest2 <- randomForest(formula=formula2, data = train3, ntree = 1000, mtry=2); mod_forest2
+
+confusion_rf <- confusion_matrix(test3, test3$salary_group, mod_forest2);confusion_rf
+
+misclass_rf <- misclass(confusion_rf); misclass_rf
+
+importance(mod_forest2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>% 
+  arrange(desc(MeanDecreaseGini))
+
+```
+Once again, with a small mtry, the misclassification rate is relatively high with the highest salary subset having the largest error. Overall, misclass. rate comes to 50%, but the same conclusions prove to hold true through both random forest iterations. (apart from job_title)
+
+Lastly, the perfect model for our formula is the naive Bayes. All the predictors are categorical, and the response, now, is categorical as well. 
+
+```{r}
+
+set.seed(100)
+
+train4 <- newdata %>% sample_frac(size = .8)
+test4 <- newdata %>% setdiff(train4)
+
+mod_nb <- naiveBayes(salary_group~., data=train4); mod_nb
+salary_nb <- predict(mod_nb, newdata=test4)
+confusion_nb <- table(salary_nb, test4$salary_group); confusion_nb
+misclass_nb <- 1-sum(diag(confusion_nb))/sum(confusion_nb); misclass_nb
+
+```
+
+To analyze some of the conditionals: As expected, the probability of experience level being senior knowing an observation is in salary class 2 is nearly 75%. On the contrary, to our surprise, middle level is more likely here than executive/expert level. This is most likely due to the commonality of the senior position compared to EX. 
+
+```{r}
+
+employ <- salaries %>% 
+  group_by(experience_level) %>% 
+  summarise(
+    n = n()
+  ); employ
+
+type <- salaries %>%  
+  group_by(employment_type) %>% 
+  summarise(
+    n = n()
+  ); type
+
+```
+
+A similar situation occurs with employment type with its probability for each category exceeding 90%. Also, similar to what we visualized through the boxplot, we see that medium sized companies are the most likely for each category. 
+
+The naive Bayes model proves to be our most accurate with a misclassification rate of 8%. 
+
+**Conclusion**
+
+Overall, to answer our research question of which variables are the best predictors of data science job salary, we found that experience level is the most important. This conclusion was corroborated through multiple models that we ran, including Naive Bayes, random forests, and a GAM model. In our regression-based random forest, we determined experience level to be the most important feature out of the five features used. In our classification-based random forest model, experience level again showed to be the most important feature. In the GAM model, experience level for senior executives and experience level for executive-level proved to be significant with their very small p-values. For our Naive Bayes model, the probability of experience level being senior given an observation is in salary class 2 (highest salary class) was high, at 75%. While our Naive Bayes model had a very low misclassification rate of only 8%, it is important to note that our regression-based and classification-based random forest models has relatively high error rates, with a test RMSE of 61063 for the regression-based model and a misclassification rate of 50% for the classification-based model. Also, the regression-based random forest is likely overfit, which can be seen from the test RMSE being almost double the train RMSE.
+
+In a future experiment, we would ideally like to have a larger and more representative dataset to work with in hopes of achieving better predictive models. For example, this dataset has observations from only 2020 to 2022, 70% of the jobs are fully remote, and 97% of the jobs are full-time roles. If we had a dataset that spanned more years and where there was a greater diversity in the remote ratio and employment type, this may have provided us with more useful insights and more predictive power. 
+ 
+
+
